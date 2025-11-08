@@ -1,0 +1,179 @@
+clear
+addpath ../FW
+
+figure(1); clf
+set(gcf,'position',[300   597   1200 300])
+
+%rng(0);
+
+% grid of positions at which to sample gain pattern
+NNN=400; 
+probes=source_grid(NNN);
+
+S{1}=sensor_positions(5);
+T{1}=0.3*[1,1];
+C{1}=0.5*[-1,-1; 1,-1; 0,0;-1 1];
+S{2}=sensor_positions(5);
+T{2}=0.3*[1,1];
+C{2}=0.5*[-1,-1; 1,-1; 0,0;-1 1];
+
+iConf=1;
+
+% create target and competitor sensor signals (separate to ease SNR estimate)
+
+% 1 target
+Mt=1./sqdist(T{iConf},S{iConf});
+% multiple competitors
+Mc=1./sqdist(C{iConf},S{iConf});
+% source signals
+nsamples=10000;
+st=sin(2*pi*(1:nsamples)*10/nsamples)'; % 10 cycles
+sc=randn(nsamples,size(C{iConf},1));
+% sensor signals
+Xt=st*Mt;
+Xc=sc*Mc;
+% adjust amplitude of targe for SNR=1 on best sensor
+pwrt=mean(Xt.^2);
+pwrc=mean(Xc.^2);
+r=sqrt(max(pwrt./pwrc));
+Xt=Xt/r;
+% target SNR
+SNR=sqrt(1);
+Xt=Xt*SNR;
+% sensor signals
+X=Xc+Xt;
+
+
+
+% beamformer aimed at target position
+subplot 142
+F=1./sqdist(T{1}, S{iConf}); F=F';
+B=beamformer(X,F);
+
+zt=nt_mmat(Xt,B);
+zc=nt_mmat(Xc,B);
+boost= (mean(zt.^2)/mean(zc.^2))/SNR.^2;
+
+% display gain pattern
+forward=source2sensor(probes,S{iConf}); 
+forward=reshape(forward,NNN*NNN,size(S{iConf},1));
+GF=reshape(forward*B,NNN,NNN,1); % grid to filteroutput
+gain_pattern=GF(:,:,1);
+
+mask=zerox(gain_pattern); % set pixels near zero to zero
+[gain_pattern,ticks,ticklabels]=symlog(gain_pattern*100,[],0.1); % --> signed log 
+gain_pattern=gain_pattern.*mask; % set zero set to zero
+gain_pattern=max(-3.9,gain_pattern);
+gain_pattern=zero_outside(gain_pattern,-4);
+
+imagesc([-1 1], [-1, 1],gain_pattern');
+viscircles(T{iConf},0.07, 'color', 'k','linestyle','-', 'linewidth', 1.5, 'enhancevisibility',0); 
+drawcross(C{iConf},'b',0.1);
+
+load tmp/VE_globs
+cmap=VE_globs.cmap;
+cmap(1,:)=[1 1 1];
+
+set(gca, 'colormap', cmap)
+set(gca,'box','off')
+set(get(gca,'xaxis'), 'visible','off')
+set(get(gca,'yaxis'), 'visible','off')
+clim([-4 4])
+
+hold on
+% circle around disk
+N=100;
+x=sin(2*pi*(1:N+1)/N);
+y=cos(2*pi*(1:N+1)/N);
+plot(x,y, 'k', 'linewidth', 2);
+a=1.05;
+    h=scatter(S{iConf}(:,1)*a,S{iConf}(:,2)*a, 300, 'k', 'filled');hold on
+    h=scatter(S{iConf}(:,1)*a,S{iConf}(:,2)*a, 200, 'w', 'filled');
+xlim([-a,a]); ylim([-a,a]);
+%    plot_tweak([0 0.06 0 -0.06], h7)
+h=colorbar('southoutside');
+set(h,'ticks', [-2 -1 0 1 2], 'ticklabels',{'-100','-10', '0','10', '100'},'fontsize',14, 'limits',[-2.5 2.5], 'fontsize',14)
+set(get(h,'label'), 'string', 'gain');
+
+drawnow
+
+
+for iConf=1
+
+    hhh{iConf}=subplot (1,4,iConf);
+
+    % 1 target
+    Mt=1./sqdist(T{iConf},S{iConf});
+    % multiple competitors
+    Mc=1./sqdist(C{iConf},S{iConf});
+    % source signals
+    nsamples=10000;
+    st=sin(2*pi*(1:nsamples)*10/nsamples)'; % 10 cycles
+    sc=randn(nsamples,size(C{iConf},1));
+    sc=nt_normcol(nt_pca(sc));
+    % sensor signals
+    Xt=st*Mt;
+    Xc=sc*Mc;
+    % adjust amplitude of targe for SNR=1 on best sensor
+    pwrt=mean(Xt.^2);
+    pwrc=mean(Xc.^2);
+    r=sqrt(max(pwrt./pwrc));
+    Xt=Xt/r;
+    % target SNR
+    SNR=sqrt(1);
+    Xt=Xt*SNR;
+    % sensor signals
+    X=Xc+Xt;
+
+    tic
+    snr=zeros(size(probes,1),1);
+    c=zeros(size(snr));
+    for iPos = 1:size(probes,1)
+        beamformertargetposition=probes(iPos,:);
+        F=1./sqdist(beamformertargetposition, S{iConf}); F=F';
+        B=beamformer(X,F);
+    
+        % apply to source and competitor separately
+        zt=nt_mmat(Xt,B);
+        zc=nt_mmat(Xc,B);
+        
+        snr(iPos)= (mean(zt.^2)/mean(zc.^2));
+        
+    end
+    
+    snr=reshape(snr,NNN,NNN);
+    snr=log10(snr);
+    snr=max(-3.9,snr);
+    pattern=zero_outside(snr,-4);
+    imagesc([-1 1], [-1, 1],pattern');
+    
+    viscircles(T{iConf},0.07, 'color', 'k','linestyle','-', 'linewidth', 1.5, 'enhancevisibility',0); 
+    drawcross(C{iConf},'w',0.1);
+    
+    cmap=gray;
+    cmap(1,:)=1; 
+    %cmap(129,:)=0;
+    set(gca, 'colormap', cmap)
+    set(gca,'box','off')
+    set(get(gca,'xaxis'), 'visible','off')
+    set(get(gca,'yaxis'), 'visible','off')
+    
+    hold on
+    % circle around disk
+    N=100;
+    x=sin(2*pi*(1:N+1)/N);
+    y=cos(2*pi*(1:N+1)/N);
+    plot(x,y, 'k', 'linewidth', 2);
+    a=1.05;
+    h=scatter(S{iConf}(:,1)*a,S{iConf}(:,2)*a, 300, 'k', 'filled');hold on
+    h=scatter(S{iConf}(:,1)*a,S{iConf}(:,2)*a, 200, 'w', 'filled');
+    xlim([-a,a]); ylim([-a,a]);
+    set(gca,'clim',4*[-1 1]);
+    %    plot_tweak([0 0.06 0 -0.06], h7)
+    h=colorbar('southoutside');
+    set(h,'ticks', [-3 -2 -1 0 1 2 3], 'ticklabels',{'.001','.01', '.1', '1', '10', '100', '1000'},'fontsize',14, 'limits',[-4 4], 'fontsize',14)
+    set(get(h,'label'), 'string', 'SNR');
+    drawnow;
+end
+
+for iConf=1;     plot_tweak([0 0.01 0 0], hhh{iConf}); end
